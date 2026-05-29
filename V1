@@ -1,0 +1,1049 @@
+import React, { useState, useMemo } from 'react';
+import { Calendar, Users, Clock, Plus, X, Check, UserCircle, Trash2, ShieldAlert, Heart, CalendarDays, AlertTriangle, FileSpreadsheet, ChevronLeft, ChevronRight, User } from 'lucide-react';
+
+const SHIFT_TYPES = {
+  MORNING: { id: 'morning', label: 'เวรเช้า (08:00 - 16:00)', color: 'bg-emerald-50 text-emerald-800 border-emerald-100', textSymbol: '🌅 เช้า' },
+  AFTERNOON: { id: 'afternoon', label: 'เวรบ่าย (16:00 - 00:00)', color: 'bg-orange-50 text-orange-800 border-orange-100', textSymbol: '🌇 บ่าย' },
+  NIGHT: { id: 'night', label: 'เวรดึก (00:00 - 08:00)', color: 'bg-blue-50 text-blue-800 border-blue-100', textSymbol: '🌃 ดึก' },
+};
+
+const LEAVE_TYPES = {
+  PERSONAL_MORNING: { id: 'PERSONAL_MORNING', label: 'ลากิจครึ่งเช้า (8.00-12.00)', color: 'bg-amber-50 text-amber-850 border-amber-200' },
+  PERSONAL_AFTERNOON: { id: 'PERSONAL_AFTERNOON', label: 'ลากิจครึ่งบ่าย (12.00-16.00)', color: 'bg-yellow-50 text-yellow-850 border-yellow-200' },
+  PERSONAL_FULL: { id: 'PERSONAL_FULL', label: 'ลากิจเต็มวัน', color: 'bg-orange-50 text-orange-850 border-orange-200' },
+  VACATION: { id: 'VACATION', label: 'ลาพักผ่อน', color: 'bg-indigo-50 text-indigo-850 border-indigo-200' },
+  SICK: { id: 'SICK', label: 'ลาป่วย', color: 'bg-red-50 text-red-850 border-red-200' },
+  MATERNITY: { id: 'MATERNITY', label: 'ลาคลอด', color: 'bg-pink-50 text-pink-850 border-pink-200' },
+};
+
+const MONTH_NAMES_TH = [
+  'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
+  'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'
+];
+
+const WEEKDAYS_TH = ['อาทิตย์', 'จันทร์', 'อังคาร', 'พุธ', 'พฤหัสบดี', 'ศุกร์', 'เสาร์'];
+
+export default function App() {
+  // --- States ---
+  const [activeTab, setActiveTab] = useState('calendar');
+  
+  // จัดเก็บเดือนและปีที่แสดงผลบนปฏิทินรายเดือน (ปี ค.ศ.)
+  const [currentMonth, setCurrentMonth] = useState(new Date().getMonth());
+  const [currentYear, setCurrentYear] = useState(new Date().getFullYear());
+
+  // รายชื่อพนักงานเริ่มต้น พร้อมคำนำหน้าชื่อ
+  const [employees, setEmployees] = useState([
+    { id: '2', prefix: 'นางสาว', name: 'สมหญิง ยินดี', position: 'MT', age: 28, isPregnant: false },
+    { id: '3', prefix: 'นาง', name: 'มานี มีใจ', position: 'ผู้ช่วย MT', age: 24, isPregnant: true },
+    { id: '4', prefix: 'นาย', name: 'ปิติ รักดี', position: 'ผู้ช่วย MT', age: 30, isPregnant: false },
+    { id: '5', prefix: 'นางสาว', name: 'กรรณิการ์ วงศ์ดี', position: 'MT (Part-time)', age: 22, isPregnant: false },
+  ]);
+
+  const [shifts, setShifts] = useState([
+    { id: 's1', userId: '2', date: new Date().toISOString().split('T')[0], type: 'morning' },
+    { id: 's2', userId: '3', date: new Date().toISOString().split('T')[0], type: 'afternoon' },
+    { id: 's3', userId: '4', date: new Date().toISOString().split('T')[0], type: 'night' },
+  ]);
+
+  // ระบบเก็บข้อมูลการลาพักร้อน/ลางาน (ทดสอบจำลองให้ นาย ปิติ มีประวัติลาพักผ่อน 2 รายการ)
+  const [leaves, setLeaves] = useState([
+    { 
+      id: 'l1', 
+      userId: '4', 
+      startDate: new Date().toISOString().split('T')[0], 
+      endDate: new Date().toISOString().split('T')[0], 
+      type: 'VACATION', 
+      reason: 'ไปพักผ่อนต่างจังหวัดรอบที่ 1',
+      status: 'approved' 
+    },
+    { 
+      id: 'l2', 
+      userId: '4', 
+      startDate: new Date(Date.now() + 86400000 * 5).toISOString().split('T')[0], // อีก 5 วันถัดไป
+      endDate: new Date(Date.now() + 86400000 * 5).toISOString().split('T')[0], 
+      type: 'VACATION', 
+      reason: 'ไปพักผ่อนต่างจังหวัดรอบที่ 2',
+      status: 'approved' 
+    },
+    { 
+      id: 'l3', 
+      userId: '2', 
+      startDate: new Date().toISOString().split('T')[0], 
+      endDate: new Date().toISOString().split('T')[0], 
+      type: 'SICK', 
+      reason: 'เป็นไข้ตัวร้อน',
+      status: 'approved' 
+    }
+  ]);
+
+  // ระบบแจ้งเตือน (Custom Toast Notification)
+  const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
+
+  // ฟอร์มสำหรับเพิ่มพนักงานใหม่
+  const [newEmployee, setNewEmployee] = useState({
+    prefix: 'นาย',
+    name: '',
+    position: 'MT',
+    age: '',
+    isPregnant: false
+  });
+
+  // ฟอร์มสำหรับจัดเวร
+  const [newShift, setNewShift] = useState({
+    userId: '2', 
+    date: new Date().toISOString().split('T')[0],
+    type: 'morning'
+  });
+
+  // ฟอร์มสำหรับพนักงานยื่นใบลา
+  const [newLeave, setNewLeave] = useState({
+    userId: '2',
+    startDate: new Date().toISOString().split('T')[0],
+    endDate: new Date().toISOString().split('T')[0],
+    type: 'PERSONAL_MORNING',
+    reason: ''
+  });
+
+  // --- ฟังก์ชันแสดงข้อความแจ้งเตือน ---
+  const triggerToast = (message, type = 'success') => {
+    setToast({ show: true, message, type });
+    setTimeout(() => {
+      setToast({ show: false, message: '', type: 'success' });
+    }, 3000);
+  };
+
+  // --- คำนวณวันในเดือนสำหรับสร้างปฏิทินรายเดือน ---
+  const calendarDays = useMemo(() => {
+    const firstDayIndex = new Date(currentYear, currentMonth, 1).getDay(); // วันแรกของเดือนเป็นวันอะไร (0-6)
+    const totalDays = new Date(currentYear, currentMonth + 1, 0).getDate(); // จำนวนวันทั้งหมดในเดือนนี้
+    const prevTotalDays = new Date(currentYear, currentMonth, 0).getDate(); // จำนวนวันทั้งหมดในเดือนก่อนหน้า
+
+    const days = [];
+
+    // ดึงวันของเดือนก่อนหน้ามาใส่ให้เต็มสัปดาห์แรก (Padding)
+    for (let i = firstDayIndex - 1; i >= 0; i--) {
+      const dayNum = prevTotalDays - i;
+      const prevMonth = currentMonth === 0 ? 11 : currentMonth - 1;
+      const prevYear = currentMonth === 0 ? currentYear - 1 : currentYear;
+      const dateString = `${prevYear}-${String(prevMonth + 1).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`;
+      days.push({
+        dateString,
+        dayNum,
+        isCurrentMonth: false,
+      });
+    }
+
+    // ดึงวันของเดือนปัจจุบัน
+    for (let i = 1; i <= totalDays; i++) {
+      const dateString = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
+      days.push({
+        dateString,
+        dayNum: i,
+        isCurrentMonth: true,
+      });
+    }
+
+    // ดึงวันของเดือนถัดไปมาใส่ให้เต็มปฏิทิน (ให้ครบแถวละ 7 วัน ทั้งหมด 42 ช่อง)
+    const remainingSlots = 42 - days.length;
+    for (let i = 1; i <= remainingSlots; i++) {
+      const nextMonth = currentMonth === 11 ? 0 : currentMonth + 1;
+      const nextYear = currentMonth === 11 ? currentYear + 1 : currentYear;
+      const dateString = `${nextYear}-${String(nextMonth + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
+      days.push({
+        dateString,
+        dayNum: i,
+        isCurrentMonth: false,
+      });
+    }
+
+    return days;
+  }, [currentMonth, currentYear]);
+
+  const handlePrevMonth = () => {
+    if (currentMonth === 0) {
+      setCurrentMonth(11);
+      setCurrentYear(currentYear - 1);
+    } else {
+      setCurrentMonth(currentMonth - 1);
+    }
+  };
+
+  const handleNextMonth = () => {
+    if (currentMonth === 11) {
+      setCurrentMonth(0);
+      setCurrentYear(currentYear + 1);
+    } else {
+      setCurrentMonth(currentMonth + 1);
+    }
+  };
+
+  const getUserById = (id) => employees.find(u => u.id === id);
+
+  // ตรวจสอบว่าพนักงานลางานในวันที่กำหนดหรือไม่
+  const getApprovedLeaveOnDate = (userId, dateStr) => {
+    const targetDate = new Date(dateStr);
+    targetDate.setHours(0,0,0,0);
+
+    return leaves.find(l => {
+      if (l.userId !== userId || l.status !== 'approved') return false;
+      const start = new Date(l.startDate);
+      const end = new Date(l.endDate);
+      start.setHours(0,0,0,0);
+      end.setHours(0,0,0,0);
+      return targetDate >= start && targetDate <= end;
+    });
+  };
+
+  // --- ฟังก์ชันจัดการข้อมูล (Actions) ---
+  
+  // เพิ่มพนักงานใหม่
+  const handleAddEmployee = (e) => {
+    e.preventDefault();
+    if (!newEmployee.name.trim() || !newEmployee.age) {
+      triggerToast('กรุณากรอกข้อมูลพนักงานให้ครบถ้วน', 'error');
+      return;
+    }
+
+    const canBePregnant = newEmployee.prefix === 'นาง' || newEmployee.prefix === 'นางสาว';
+
+    const createdEmployee = {
+      id: `emp_${Date.now()}`,
+      prefix: newEmployee.prefix,
+      name: newEmployee.name,
+      position: newEmployee.position,
+      age: parseInt(newEmployee.age),
+      isPregnant: canBePregnant ? newEmployee.isPregnant : false
+    };
+
+    setEmployees([...employees, createdEmployee]);
+    setNewEmployee({ prefix: 'นาย', name: '', position: 'MT', age: '', isPregnant: false });
+    triggerToast('เพิ่มข้อมูลพนักงานเรียบร้อยแล้ว');
+  };
+
+  // ลบพนักงาน
+  const handleDeleteEmployee = (id) => {
+    setShifts(shifts.filter(s => s.userId !== id));
+    setLeaves(leaves.filter(l => l.userId !== id));
+    setEmployees(employees.filter(e => e.id !== id));
+    triggerToast('ลบข้อมูลพนักงานเรียบร้อยแล้ว', 'error');
+  };
+
+  // เพิ่มเวร
+  const handleAddShift = (e) => {
+    e.preventDefault();
+    const selectedUser = getUserById(newShift.userId);
+    if (!selectedUser) {
+      triggerToast('กรุณาเลือกพนักงานก่อนจัดเวร', 'error');
+      return;
+    }
+
+    // ตรวจสอบเงื่อนไขว่าวันดังกล่าวพนักงานลาอยู่หรือไม่
+    const onLeave = getApprovedLeaveOnDate(newShift.userId, newShift.date);
+    if (onLeave) {
+      const leaveInfo = LEAVE_TYPES[onLeave.type] || { label: 'ลางาน' };
+      triggerToast(`ไม่สามารถจัดเวรได้เนื่องจากพนักงานลงทะเบียนลางานในวันดังกล่าว (${leaveInfo.label})`, 'error');
+      return;
+    }
+
+    // ตรวจสอบว่าในกะวันเดียวกันและกะประเภทเดียวกัน ลงพนักงานคนเดิมซ้ำไปแล้วหรือยัง
+    const isDuplicate = shifts.some(s => s.userId === newShift.userId && s.date === newShift.date && s.type === newShift.type);
+    if (isDuplicate) {
+      triggerToast('พนักงานท่านนี้ลงกะเวรดังกล่าวในวันนี้ไปแล้ว', 'error');
+      return;
+    }
+
+    const newShiftData = {
+      id: `s_${Date.now()}`,
+      ...newShift
+    };
+    setShifts([...shifts, newShiftData]);
+    triggerToast('จัดตารางเวรให้พนักงานสำเร็จแล้ว');
+  };
+
+  // บันทึกการลาโดยตรง (พนักงานหรือแอดมินคีย์)
+  const handleAddLeaveRequest = (e) => {
+    e.preventDefault();
+    if (new Date(newLeave.startDate) > new Date(newLeave.endDate)) {
+      triggerToast('วันที่เริ่มต้นลา ต้องไม่มากกว่าวันที่สิ้นสุดลา', 'error');
+      return;
+    }
+
+    const newRequest = {
+      id: `leave_${Date.now()}`,
+      ...newLeave,
+      status: 'approved' // บันทึกและอนุมัติทันทีโดยไม่ต้องรอตรวจรับคำขอ
+    };
+
+    setLeaves([...leaves, newRequest]);
+    setNewLeave({
+      userId: employees[0]?.id || '',
+      startDate: new Date().toISOString().split('T')[0],
+      endDate: new Date().toISOString().split('T')[0],
+      type: 'PERSONAL_MORNING',
+      reason: ''
+    });
+    triggerToast('บันทึกประวัติการลาเรียบร้อยแล้ว');
+  };
+
+  // ลบประวัติการลา
+  const handleDeleteLeave = (leaveId) => {
+    setLeaves(leaves.filter(l => l.id !== leaveId));
+    triggerToast('ลบประวัติการลาเรียบร้อยแล้ว', 'error');
+  };
+
+  // ลบกะเวรรายวัน
+  const handleDeleteShift = (shiftId) => {
+    setShifts(shifts.filter(s => s.id !== shiftId));
+    triggerToast('ลบตารางเวรเรียบร้อยแล้ว');
+  };
+
+  // --- คำนวณการจัดกลุ่มการลาแยกรายบุคคล (Grouped by Employee) ---
+  const groupedLeaves = useMemo(() => {
+    const groups = {};
+
+    // จัดกลุ่มตามพนักงาน
+    leaves.forEach(leave => {
+      if (!groups[leave.userId]) {
+        groups[leave.userId] = {
+          userId: leave.userId,
+          employee: getUserById(leave.userId),
+          items: [],
+          stats: {} // นับจำนวนครั้งแยกตามประเภทการลา
+        };
+      }
+      
+      groups[leave.userId].items.push(leave);
+      
+      const leaveTypeLabel = LEAVE_TYPES[leave.type]?.label || 'อื่น ๆ';
+      groups[leave.userId].stats[leaveTypeLabel] = (groups[leave.userId].stats[leaveTypeLabel] || 0) + 1;
+    });
+
+    // เรียงประวัติการลาของแต่ละคนจากใหม่ไปเก่า
+    Object.values(groups).forEach(group => {
+      group.items.sort((a, b) => new Date(b.startDate) - new Date(a.startDate));
+    });
+
+    return Object.values(groups);
+  }, [leaves, employees]);
+
+  // --- Components ย่อย ---
+  
+  // 1. หน้าตารางเวรรวม (Calendar View) - รูปแบบรายเดือนเต็มจอตามรูปตัวอย่าง
+  const CalendarView = () => {
+    return (
+      <div className="space-y-4">
+        {/* ส่วนหัวแสดงการเปลี่ยนเดือน */}
+        <div className="flex flex-col sm:flex-row justify-between items-center bg-white p-4 rounded-xl shadow-sm border border-gray-100 gap-4">
+          <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+            <Calendar className="w-6 h-6 text-indigo-600" /> ตารางเวรและสรุปกะรายวัน
+          </h2>
+          <div className="flex items-center gap-4 bg-slate-100 rounded-lg p-1.5">
+            <button 
+              onClick={handlePrevMonth} 
+              className="p-1.5 hover:bg-white rounded-md transition-all text-gray-600 hover:text-indigo-600"
+              title="เดือนก่อนหน้า"
+            >
+              <ChevronLeft className="w-5 h-5" />
+            </button>
+            <span className="font-bold text-gray-700 min-w-[120px] text-center text-sm md:text-base">
+              {MONTH_NAMES_TH[currentMonth]} {currentYear + 543}
+            </span>
+            <button 
+              onClick={handleNextMonth} 
+              className="p-1.5 hover:bg-white rounded-md transition-all text-gray-600 hover:text-indigo-600"
+              title="เดือนถัดไป"
+            >
+              <ChevronRight className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+
+        {/* ตารางแสดงผลรายเดือน */}
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+          {/* ส่วนหัวชื่อวัน (อาทิตย์ - เสาร์) */}
+          <div className="grid grid-cols-7 border-b border-gray-200 bg-slate-50">
+            {WEEKDAYS_TH.map((day, idx) => (
+              <div 
+                key={day} 
+                className={`py-3 text-center text-xs md:text-sm font-bold border-r border-gray-200 last:border-r-0 ${
+                  idx === 0 ? 'text-red-600 bg-red-50/20' : idx === 6 ? 'text-blue-600 bg-blue-50/20' : 'text-gray-700'
+                }`}
+              >
+                {day}
+              </div>
+            ))}
+          </div>
+
+          {/* ตารางวันที่ 6 แถว แถวละ 7 วัน */}
+          <div className="grid grid-cols-7 grid-rows-6 divide-x divide-y divide-gray-200">
+            {calendarDays.map((day, idx) => {
+              const dayShifts = shifts.filter(s => s.date === day.dateString);
+              
+              // ค้นหาพนักงานที่บันทึกการลาในวันนี้
+              const dayLeaves = leaves.filter(l => {
+                if (l.status !== 'approved') return false;
+                const targetDate = new Date(day.dateString);
+                const start = new Date(l.startDate);
+                const end = new Date(l.endDate);
+                targetDate.setHours(0,0,0,0);
+                start.setHours(0,0,0,0);
+                end.setHours(0,0,0,0);
+                return targetDate >= start && targetDate <= end;
+              });
+
+              // ตรวจสอบว่าเป็นวันปัจจุบันหรือไม่
+              const isToday = day.dateString === new Date().toISOString().split('T')[0];
+
+              return (
+                <div 
+                  key={day.dateString + '-' + idx} 
+                  className={`min-h-[140px] md:min-h-[160px] p-2 flex flex-col justify-between hover:bg-slate-50/50 transition-colors ${
+                    day.isCurrentMonth ? 'bg-white' : 'bg-slate-50 text-gray-400'
+                  } ${isToday ? 'ring-2 ring-indigo-500 ring-inset bg-indigo-50/10' : ''}`}
+                >
+                  {/* หัวช่องระบุเลขวัน */}
+                  <div className="flex justify-between items-center">
+                    <span className={`text-xs md:text-sm font-bold px-1.5 py-0.5 rounded-full ${
+                      isToday 
+                        ? 'bg-indigo-600 text-white' 
+                        : day.isCurrentMonth 
+                        ? 'text-gray-800' 
+                        : 'text-gray-400'
+                    }`}>
+                      {day.dayNum}
+                    </span>
+                    
+                    {/* ปุ่มด่วนสำหรับแอดมินคลิกไปจัดตารางของวันนี้ */}
+                    <button
+                      onClick={() => {
+                        setNewShift(prev => ({ ...prev, date: day.dateString }));
+                        setActiveTab('manage');
+                      }}
+                      className="text-[10px] text-indigo-600 hover:text-indigo-800 font-semibold opacity-0 hover:opacity-100 focus:opacity-100 transition-opacity flex items-center gap-0.5"
+                      title="จัดตารางเวรในวันนี้"
+                    >
+                      <Plus className="w-3 h-3" /> ลงเวร
+                    </button>
+                  </div>
+
+                  {/* สรุปรายละเอียดเวรรายวัน */}
+                  <div className="mt-1 flex-1 space-y-1.5 overflow-y-auto max-h-[100px] scrollbar-thin">
+                    {/* แยกกลุ่มเวร เช้า, บ่าย, ดึก */}
+                    {Object.values(SHIFT_TYPES).map(st => {
+                      const shiftsInGroup = dayShifts.filter(s => s.type === st.id);
+                      if (shiftsInGroup.length === 0) return null;
+
+                      return (
+                        <div key={st.id} className="text-[10px] leading-tight">
+                          <div className="font-semibold text-gray-500 text-[9px] flex items-center gap-1">
+                            <span>{st.textSymbol}</span>
+                          </div>
+                          <div className="pl-1 space-y-0.5">
+                            {shiftsInGroup.map(s => {
+                              const user = getUserById(s.userId);
+                              if (!user) return null;
+                              return (
+                                <div key={s.id} className="flex justify-between items-center group/item text-gray-700 bg-slate-100/60 p-0.5 px-1 rounded hover:bg-slate-200/50">
+                                  <span className="truncate max-w-[80%] font-medium">
+                                    {user.prefix}{user.name.split(' ')[0]}
+                                  </span>
+                                  {/* ปุ่มลบกะออกแบบลัด */}
+                                  <button 
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleDeleteShift(s.id);
+                                    }}
+                                    className="opacity-0 group-hover/item:opacity-100 text-red-500 hover:text-red-700 transition-opacity p-0.5"
+                                    title="ลบเวรนี้"
+                                  >
+                                    <X className="w-2.5 h-2.5" />
+                                  </button>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                    {dayShifts.length === 0 && dayLeaves.length === 0 && (
+                      <div className="h-full flex items-center justify-center text-[10px] text-gray-300 py-3">
+                        ว่าง
+                      </div>
+                    )}
+                  </div>
+
+                  {/* แสดงรายการคนลา */}
+                  {dayLeaves.length > 0 && (
+                    <div className="border-t border-red-100 pt-1 mt-1 space-y-0.5">
+                      {dayLeaves.map(leave => {
+                        const user = getUserById(leave.userId);
+                        const leaveInfo = LEAVE_TYPES[leave.type] || { label: 'ลา' };
+                        if (!user) return null;
+                        return (
+                          <div 
+                            key={leave.id} 
+                            className="text-[9px] p-0.5 bg-red-50 border border-red-150 text-red-700 rounded font-semibold truncate"
+                            title={`${user.prefix}${user.name}: ${leaveInfo.label}`}
+                          >
+                            ❌ {user.name.split(' ')[0]} ({leaveInfo.label.split(' ')[0]})
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // 2. หน้าจัดตารางเวร (พร้อมระบบแจ้งเตือนการลาซ้อน)
+  const ManageShiftsView = () => {
+    // เช็กว่าพนักงานที่แอดมินเลือก มีประวัติลาในวันที่เลือกหรือไม่
+    const leaveConflict = getApprovedLeaveOnDate(newShift.userId, newShift.date);
+    const selectedUserLeaveLabel = leaveConflict ? (LEAVE_TYPES[leaveConflict.type]?.label || 'ลางาน') : '';
+    
+    return (
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 max-w-2xl mx-auto">
+        <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2 mb-6">
+          <Plus className="w-6 h-6 text-indigo-600" /> จัดเวรให้พนักงาน
+        </h2>
+        {employees.length === 0 ? (
+          <div className="text-center py-8 text-gray-500">
+            กรุณาเพิ่มพนักงานในเมนู "รายชื่อพนักงาน" ก่อนทำการจัดเวร
+          </div>
+        ) : (
+          <form onSubmit={handleAddShift} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">พนักงาน</label>
+              <select 
+                value={newShift.userId}
+                onChange={(e) => setNewShift({...newShift, userId: e.target.value})}
+                className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+              >
+                {employees.map(u => (
+                  <option key={u.id} value={u.id}>
+                    {u.prefix}{u.name} ({u.position}) {u.isPregnant ? '(ตั้งครรภ์)' : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">วันที่ต้องการจัดเวร</label>
+              <input 
+                type="date" 
+                value={newShift.date}
+                onChange={(e) => setNewShift({...newShift, date: e.target.value})}
+                className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+              />
+            </div>
+
+            {/* แสดงคำเตือนถ้าชนกับวันลา */}
+            {leaveConflict && (
+              <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-lg p-3.5 flex items-start gap-2.5 text-sm animate-pulse">
+                <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                <div>
+                  <span className="font-bold">คำเตือน:</span> พนักงานท่านนี้อยู่ในระหว่างการ <span className="font-bold text-red-600">"{selectedUserLeaveLabel}"</span> ระหว่างวันที่ {new Date(leaveConflict.startDate).toLocaleDateString('th-TH')} ถึง {new Date(leaveConflict.endDate).toLocaleDateString('th-TH')} ไม่สามารถลงเวรในวันดังกล่าวได้
+                </div>
+              </div>
+            )}
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">กะเวลา (Shift)</label>
+              <select 
+                value={newShift.type}
+                onChange={(e) => setNewShift({...newShift, type: e.target.value})}
+                className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+              >
+                {Object.values(SHIFT_TYPES).map(t => (
+                  <option key={t.id} value={t.id}>{t.label}</option>
+                ))}
+              </select>
+            </div>
+            
+            <button 
+              type="submit" 
+              disabled={!!leaveConflict}
+              className={`w-full font-medium py-2.5 rounded-lg transition-colors ${
+                leaveConflict 
+                  ? 'bg-gray-300 text-gray-500 cursor-not-allowed' 
+                  : 'bg-indigo-600 text-white hover:bg-indigo-700'
+              }`}
+            >
+              เพิ่มตารางเวร
+            </button>
+          </form>
+        )}
+      </div>
+    );
+  };
+
+  // 3. หน้ารายชื่อพนักงาน
+  const EmployeesListView = () => (
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+        <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2 mb-6">
+          <Users className="w-6 h-6 text-indigo-600" /> รายชื่อพนักงานในระบบ ({employees.length} คน)
+        </h2>
+        
+        {employees.length === 0 ? (
+          <div className="text-center py-12 text-gray-400">
+            ไม่มีพนักงานในระบบ กรุณากรอกข้อมูลเพื่อเพิ่มพนักงานใหม่ด้านข้าง
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="border-b border-gray-150 bg-slate-50 text-gray-600 text-sm font-semibold">
+                  <th className="p-3">ชื่อ-สกุล</th>
+                  <th className="p-3">ตำแหน่ง</th>
+                  <th className="p-3 text-center">อายุ</th>
+                  <th className="p-3 text-center">สถานะตั้งครรภ์</th>
+                  <th className="p-3 text-center">จัดการ</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100 text-sm">
+                {employees.map(emp => (
+                  <tr key={emp.id} className="hover:bg-slate-50 transition-colors">
+                    <td className="p-3 font-medium text-gray-900">{emp.prefix}{emp.name}</td>
+                    <td className="p-3">
+                      <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${
+                        emp.position === 'MT' 
+                          ? 'bg-indigo-50 text-indigo-700 border border-indigo-150' 
+                          : emp.position === 'MT (Part-time)'
+                          ? 'bg-sky-50 text-sky-700 border border-sky-150'
+                          : 'bg-amber-50 text-amber-700 border border-amber-150'
+                      }`}>
+                        {emp.position}
+                      </span>
+                    </td>
+                    <td className="p-3 text-center">{emp.age} ปี</td>
+                    <td className="p-3 text-center">
+                      {emp.isPregnant ? (
+                        <span className="inline-flex items-center gap-1 text-red-600 font-semibold bg-red-50 px-2 py-0.5 rounded text-xs">
+                          <Heart className="w-3 h-3 fill-red-500 stroke-red-500" /> ตั้งครรภ์
+                        </span>
+                      ) : (
+                        <span className="text-gray-400 text-xs">ปกติ</span>
+                      )}
+                    </td>
+                    <td className="p-3 text-center">
+                      <button 
+                        onClick={() => handleDeleteEmployee(emp.id)}
+                        className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg transition-colors inline-flex"
+                        title="ลบพนักงาน"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* ฝั่งเพิ่มพนักงานใหม่ */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 h-fit">
+        <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2 mb-4">
+          <Plus className="w-5 h-5 text-indigo-600" /> เพิ่มพนักงานใหม่
+        </h3>
+        <form onSubmit={handleAddEmployee} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">คำนำหน้าชื่อ</label>
+            <select 
+              value={newEmployee.prefix}
+              onChange={(e) => {
+                const selectedPrefix = e.target.value;
+                setNewEmployee({
+                  ...newEmployee, 
+                  prefix: selectedPrefix,
+                  isPregnant: (selectedPrefix === 'นาง' || selectedPrefix === 'นางสาว') ? newEmployee.isPregnant : false
+                });
+              }}
+              className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
+            >
+              <option value="นาย">นาย</option>
+              <option value="นาง">นาง</option>
+              <option value="นางสาว">นางสาว</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">ชื่อ-นามสกุล</label>
+            <input 
+              type="text"
+              placeholder="ไม่ต้องระบุคำนำหน้าซ้ำ เช่น สมชาย รักงาน"
+              value={newEmployee.name}
+              onChange={(e) => setNewEmployee({...newEmployee, name: e.target.value})}
+              className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
+            />
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">ตำแหน่ง</label>
+            <select 
+              value={newEmployee.position}
+              onChange={(e) => setNewEmployee({...newEmployee, position: e.target.value})}
+              className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
+            >
+              <option value="MT">MT</option>
+              <option value="MT (Part-time)">MT (Part-time)</option>
+              <option value="ผู้ช่วย MT">ผู้ช่วย MT</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">อายุ (ปี)</label>
+            <input 
+              type="number"
+              placeholder="ระบุอายุเป็นตัวเลข"
+              min="18"
+              max="100"
+              value={newEmployee.age}
+              onChange={(e) => setNewEmployee({...newEmployee, age: e.target.value})}
+              className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
+            />
+          </div>
+
+          {(newEmployee.prefix === 'นาง' || newEmployee.prefix === 'นางสาว') && (
+            <div className="bg-slate-50 p-3 rounded-lg border border-gray-200">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input 
+                  type="checkbox"
+                  checked={newEmployee.isPregnant}
+                  onChange={(e) => setNewEmployee({...newEmployee, isPregnant: e.target.checked})}
+                  className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+                />
+                <span className="text-sm font-medium text-gray-700">อยู่ระหว่างตั้งครรภ์</span>
+              </label>
+            </div>
+          )}
+
+          <button type="submit" className="w-full bg-indigo-600 text-white font-medium py-2.5 rounded-lg hover:bg-indigo-700 transition-colors text-sm">
+            ยืนยันการเพิ่มพนักงาน
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+
+  // 4. หน้าเขียนคำขอลาพนักงาน (Employee Key-In Page)
+  const EmployeeLeaveFormView = () => {
+    return (
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 max-w-2xl mx-auto">
+        <div className="flex items-center gap-2 mb-6 border-b pb-4">
+          <FileSpreadsheet className="w-6 h-6 text-indigo-600" />
+          <div>
+            <h2 className="text-xl font-bold text-gray-800">ระบบบันทึกการลาสำหรับพนักงาน</h2>
+            <p className="text-xs text-gray-500 mt-0.5">กรอกข้อมูลการลาและช่วงเวลาเพื่อบันทึกประวัติเข้าสู่ระบบโดยตรง</p>
+          </div>
+        </div>
+
+        {employees.length === 0 ? (
+          <div className="text-center py-8 text-gray-500">
+            ไม่มีพนักงานในระบบที่จะสามารถทำรายการลาได้
+          </div>
+        ) : (
+          <form onSubmit={handleAddLeaveRequest} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">เลือกชื่อพนักงานผู้ขอลา</label>
+              <select 
+                value={newLeave.userId}
+                onChange={(e) => setNewLeave({...newLeave, userId: e.target.value})}
+                className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
+              >
+                {employees.map(u => (
+                  <option key={u.id} value={u.id}>
+                    {u.prefix}{u.name} ({u.position})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">ตั้งแต่วันที่</label>
+                <input 
+                  type="date" 
+                  value={newLeave.startDate}
+                  onChange={(e) => setNewLeave({...newLeave, startDate: e.target.value})}
+                  className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">ถึงวันที่</label>
+                <input 
+                  type="date" 
+                  value={newLeave.endDate}
+                  min={newLeave.startDate}
+                  onChange={(e) => setNewLeave({...newLeave, endDate: e.target.value})}
+                  className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">ประเภทการลา</label>
+              <select 
+                value={newLeave.type}
+                onChange={(e) => setNewLeave({...newLeave, type: e.target.value})}
+                className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
+              >
+                {Object.values(LEAVE_TYPES).map(lt => (
+                  <option key={lt.id} value={lt.id}>{lt.label}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">เหตุผลการลา (ไม่บังคับ)</label>
+              <textarea 
+                placeholder="ระบุรายละเอียดหรือความจำเป็นสั้นๆ"
+                value={newLeave.reason}
+                onChange={(e) => setNewLeave({...newLeave, reason: e.target.value})}
+                rows="3"
+                className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
+              />
+            </div>
+
+            <button type="submit" className="w-full bg-indigo-600 text-white font-medium py-2.5 rounded-lg hover:bg-indigo-700 transition-colors text-sm">
+              บันทึก
+            </button>
+          </form>
+        )}
+      </div>
+    );
+  };
+
+  // 5. หน้ารวมและสรุปประวัติการลาแยกตามโปรไฟล์บุคคล (Leave Profiles Tracker)
+  const LeavesReviewView = () => {
+    return (
+      <div className="space-y-6 max-w-5xl mx-auto">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+            <div>
+              <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+                <CalendarDays className="w-6 h-6 text-indigo-600" /> สรุปผลการลางานแยกโปรไฟล์รายบุคคล
+              </h2>
+              <p className="text-xs text-gray-500 mt-1">แสดงสถิติสะสมและข้อมูลช่วงวันลาจำแนกแยกตามพนักงานเพื่อการตรวจสอบที่ง่ายขึ้น</p>
+            </div>
+            
+            <div className="bg-indigo-50 border border-indigo-100 text-indigo-800 px-3 py-1.5 rounded-lg text-xs font-semibold">
+              พนักงานที่เคยลาสะสม: {groupedLeaves.length} คน
+            </div>
+          </div>
+
+          {groupedLeaves.length === 0 ? (
+            <div className="text-center py-12 text-gray-400">
+              ไม่มีข้อมูลประวัติการลาในระบบในขณะนี้
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {groupedLeaves.map(group => {
+                const { employee, items, stats } = group;
+                if (!employee) return null;
+
+                return (
+                  <div key={group.userId} className="border border-gray-200 rounded-xl bg-white hover:shadow-md transition-shadow overflow-hidden flex flex-col justify-between">
+                    {/* ส่วนหัวการ์ดโปรไฟล์พนักงาน */}
+                    <div className="p-4 bg-slate-50 border-b border-gray-150 flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold border border-indigo-200">
+                          {employee.name.charAt(0)}
+                        </div>
+                        <div>
+                          <div className="font-bold text-gray-900 flex items-center gap-1.5 text-sm md:text-base">
+                            {employee.prefix}{employee.name}
+                            {employee.isPregnant && (
+                              <span className="text-[10px] bg-red-100 text-red-700 px-1.5 py-0.5 rounded flex items-center gap-0.5">
+                                <Heart className="w-2.5 h-2.5 fill-red-500 stroke-red-500" /> ครรภ์
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-gray-500">{employee.position} · อายุ {employee.age} ปี</p>
+                        </div>
+                      </div>
+
+                      <div className="text-right">
+                        <span className="text-xs font-bold text-white bg-indigo-600 px-2.5 py-1 rounded-full">
+                          ลาทั้งหมด {items.length} ครั้ง
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* สถิติสรุปสั้น ๆ ของโปรไฟล์นี้ */}
+                    <div className="px-4 py-2.5 bg-indigo-50/40 border-b border-gray-100 flex flex-wrap gap-2">
+                      <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">ประเภทที่ลาสะสม:</span>
+                      {Object.entries(stats).map(([label, count]) => (
+                        <span key={label} className="text-[10px] font-semibold bg-white text-gray-700 border border-gray-200 px-1.5 py-0.5 rounded">
+                          {label} <strong className="text-indigo-600 ml-0.5">{count} ครั้ง</strong>
+                        </span>
+                      ))}
+                    </div>
+
+                    {/* รายการประวัติวันลาของพนักงานผู้นี้ */}
+                    <div className="p-4 flex-1 space-y-3 max-h-[220px] overflow-y-auto scrollbar-thin">
+                      <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider">รายละเอียดวันลาทั้งหมด:</h4>
+                      {items.map((leave, index) => {
+                        const leaveInfo = LEAVE_TYPES[leave.type] || { label: 'ลางาน', color: 'bg-gray-100 text-gray-700 border-gray-200' };
+                        const startDateObj = new Date(leave.startDate);
+                        const endDateObj = new Date(leave.endDate);
+
+                        return (
+                          <div key={leave.id} className="p-3 bg-slate-50 border border-gray-150 rounded-lg text-xs space-y-1.5 relative group">
+                            <div className="flex justify-between items-start pr-6">
+                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${leaveInfo.color} border`}>
+                                ครั้งที่ {items.length - index}: {leaveInfo.label}
+                              </span>
+                              
+                              {/* ปุ่มลบประวัติยื่นลารอบนี้แบบเฉพาะเจาะจง */}
+                              <button
+                                onClick={() => handleDeleteLeave(leave.id)}
+                                className="absolute top-2.5 right-2 text-gray-400 hover:text-red-600 transition-colors p-1"
+                                title="ลบวันลารายการนี้"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+
+                            <div className="text-gray-700 font-medium pt-0.5">
+                              📆 {startDateObj.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' })}
+                              {leave.startDate !== leave.endDate && ` ถึง ${endDateObj.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' })}`}
+                            </div>
+
+                            {leave.reason ? (
+                              <p className="text-[11px] text-gray-500 italic bg-white p-1.5 rounded border border-gray-100">
+                                <span className="font-semibold text-gray-700 not-italic">เหตุผล:</span> "{leave.reason}"
+                              </p>
+                            ) : (
+                              <span className="text-[10px] text-gray-400 italic">ไม่ได้ระบุเหตุผลการลา</span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  // --- Main Render ---
+  return (
+    <div className="min-h-screen bg-slate-50 font-sans text-gray-900">
+      {/* Custom Alert/Toast Notification */}
+      {toast.show && (
+        <div className={`fixed top-5 right-5 z-50 flex items-center gap-2 px-4 py-3 rounded-xl shadow-lg border text-sm font-medium animate-bounce ${
+          toast.type === 'success' ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-red-50 border-red-200 text-red-800'
+        }`}>
+          {toast.type === 'success' ? <Check className="w-4 h-4 text-emerald-600" /> : <ShieldAlert className="w-4 h-4 text-red-600" />}
+          {toast.message}
+        </div>
+      )}
+
+      {/* Header */}
+      <header className="bg-white border-b border-gray-200 sticky top-0 z-10">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center h-16">
+            <div className="flex items-center gap-2">
+              <div className="bg-indigo-600 p-2 rounded-lg">
+                <Calendar className="w-6 h-6 text-white" />
+              </div>
+              <span className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-600 to-purple-600">
+                ShiftMaster
+              </span>
+            </div>
+            
+            {/* User Profile */}
+            <div className="flex items-center gap-4">
+              <div className="hidden md:flex flex-col items-end">
+                <span className="text-sm font-bold text-gray-700">หัวหน้า สมชาย</span>
+                <span className="text-xs px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-600 font-medium border border-indigo-100">
+                  ผู้ดูแลระบบ (Admin)
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      {/* Navigation Tabs */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-6">
+        <nav className="flex space-x-2 border-b border-gray-200 overflow-x-auto pb-px">
+          <button
+            onClick={() => setActiveTab('calendar')}
+            className={`px-4 py-2.5 text-sm font-medium rounded-t-lg border-b-2 whitespace-nowrap ${
+              activeTab === 'calendar' 
+                ? 'border-indigo-500 text-indigo-600 bg-indigo-50/50' 
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+            }`}
+          >
+            ดูตารางรวม
+          </button>
+          
+          <button
+            onClick={() => setActiveTab('employees')}
+            className={`px-4 py-2.5 text-sm font-medium rounded-t-lg border-b-2 whitespace-nowrap ${
+              activeTab === 'employees' 
+                ? 'border-indigo-500 text-indigo-600 bg-indigo-50/50' 
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+            }`}
+          >
+            รายชื่อพนักงาน
+          </button>
+
+          <button
+            onClick={() => setActiveTab('manage')}
+            className={`px-4 py-2.5 text-sm font-medium rounded-t-lg border-b-2 whitespace-nowrap ${
+              activeTab === 'manage' ? 'border-indigo-500 text-indigo-600 bg-indigo-50/50' : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+            }`}
+          >
+            จัดตารางเวร
+          </button>
+
+          <button
+            onClick={() => setActiveTab('submit_leave')}
+            className={`px-4 py-2.5 text-sm font-medium rounded-t-lg border-b-2 whitespace-nowrap ${
+              activeTab === 'submit_leave' ? 'border-indigo-500 text-indigo-600 bg-indigo-50/50' : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+            }`}
+          >
+            พนักงานยื่นใบลา 📝
+          </button>
+
+          <button
+            onClick={() => setActiveTab('leaves_review')}
+            className={`px-4 py-2.5 text-sm font-medium rounded-t-lg border-b-2 whitespace-nowrap flex items-center gap-1.5 ${
+              activeTab === 'leaves_review' ? 'border-indigo-500 text-indigo-600 bg-indigo-50/50' : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+            }`}
+          >
+            บันทึกผลการลา
+            {leaves.length > 0 && (
+              <span className="bg-indigo-600 text-white text-xs px-2 py-0.5 rounded-full font-bold">
+                {leaves.length}
+              </span>
+            )}
+          </button>
+        </nav>
+
+        {/* Content Area */}
+        <main className="py-6">
+          {activeTab === 'calendar' && <CalendarView />}
+          {activeTab === 'employees' && <EmployeesListView />}
+          {activeTab === 'manage' && <ManageShiftsView />}
+          {activeTab === 'submit_leave' && <EmployeeLeaveFormView />}
+          {activeTab === 'leaves_review' && <LeavesReviewView />}
+        </main>
+      </div>
+    </div>
+  );
+}
